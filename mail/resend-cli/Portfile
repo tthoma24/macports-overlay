@@ -1,0 +1,174 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+# Copyright (c) 2026 Teddy Thomas
+# Licensed under the Mozilla Public License 2.0. See LICENSE.
+
+PortSystem          1.0
+PortGroup           github 1.0
+
+github.setup        resend resend-cli 2.12.0 v
+revision            0
+
+categories          mail
+license             MIT
+maintainers         {gmail.com:tjthomas292 @tthoma24} openmaintainer
+
+description         Official command-line interface for Resend
+
+long_description    {*}${description}, the email API for developers. Send and \
+                    manage transactional and marketing email, domains, API \
+                    keys, broadcasts, contacts, templates, webhooks, and \
+                    automations from the terminal.
+
+homepage            https://resend.com/cli
+
+supported_archs     arm64 x86_64
+
+# Both paths are bounded by Node.js 24, which requires macOS 13: the default
+# variant embeds it, and the source variant bundles against it.
+platforms           {darwin >= 22}
+installs_libs       no
+
+use_configure       no
+
+dist_subdir         ${name}/${version}
+
+# The CLI reports anonymous usage to PostHog and checks GitHub for newer
+# releases. Both are suppressed while the port is being built and tested so that
+# no network requests are made and nothing is written outside the destroot.
+set resend_offline_env \
+    "RESEND_TELEMETRY_DISABLED=1 RESEND_NO_UPDATE_NOTIFIER=1"
+
+variant source description {Build from the upstream source archive with pnpm \
+                            instead of installing the pre-built binary} {}
+
+if {[variant_isset source]} {
+    github.tarball_from archive
+
+    depends_build-append    port:pnpm
+    depends_lib-append      path:bin/node:nodejs22
+
+    checksums           rmd160  ef3a8332fa05d3ff9302a4a610b3a4e8bbd3f797 \
+                        sha256  d292f54385f5ef23cf1b8678ab8d9703d6eaa149ae90e7d3939d9e16d51c2633 \
+                        size    319532
+
+    build {
+        # package.json pins packageManager to pnpm 11.8.0. Without
+        # managePackageManagerVersions=false, pnpm fetches that exact release
+        # rather than using port:pnpm. The store is confined to the work
+        # directory, and node_modules is hoisted so that destroot copies real
+        # directories instead of symlinks into pnpm's content-addressed store.
+        system -W ${worksrcpath} "${prefix}/bin/pnpm install --frozen-lockfile \
+            --config.managePackageManagerVersions=false \
+            --config.store-dir=${workpath}/.pnpm-store \
+            --config.node-linker=hoisted"
+
+        # 'pnpm build' just runs this script, and invoking it through pnpm would
+        # re-trigger the packageManager download above, so call it directly.
+        system -W ${worksrcpath} "${prefix}/bin/node scripts/build.mjs"
+    }
+
+    destroot {
+        set libdir ${prefix}/lib/${name}
+
+        xinstall -d ${destroot}${libdir}/node_modules/@esbuild
+        xinstall -m 0755 ${worksrcpath}/dist/cli.cjs ${destroot}${libdir}/cli.cjs
+
+        # scripts/build.mjs externalizes esbuild and esbuild-wasm, and
+        # src/lib/esbuild/load-esbuild.ts require()s them lazily, so the bundle
+        # is incomplete unless they ship alongside it.
+        foreach m {esbuild esbuild-wasm} {
+            copy ${worksrcpath}/node_modules/${m} \
+                 ${destroot}${libdir}/node_modules/
+        }
+        copy {*}[glob ${worksrcpath}/node_modules/@esbuild/darwin-*] \
+             ${destroot}${libdir}/node_modules/@esbuild/
+
+        set wrapper [open ${destroot}${prefix}/bin/resend w 0755]
+        puts $wrapper "#!/bin/sh"
+        puts $wrapper "exec ${prefix}/bin/node ${libdir}/cli.cjs \"$@\""
+        close $wrapper
+    }
+
+    test.cmd            ${prefix}/bin/node dist/cli.cjs
+} else {
+    # Upstream ships pre-built, self-contained binaries. These are the same
+    # artifacts used by https://resend.com/install.sh and by the
+    # resend/homebrew-cli tap.
+    if {${configure.build_arch} eq "arm64"} {
+        set arch_string     darwin-arm64
+        checksums           rmd160  da6fe01e566a6ee848df50b80beef3caebdeb4a4 \
+                            sha256  d6f1dab53f1eb6f4d4f1cbd8dd34ffa9e8354c99ea1c29bb1c69abb91d7bb7d7 \
+                            size    26673428
+    } else {
+        set arch_string     darwin-x64
+        checksums           rmd160  24a4a30993b4a6f3e1512cae8940dde7676d21e4 \
+                            sha256  8efef51ffeaf8f0bcd804e0ef909ed2b39c53b7687fc5df5dbb581a1ff565f75 \
+                            size    28272525
+    }
+
+    master_sites        ${github.homepage}/releases/download/${github.tag_prefix}${version}/
+    distname            resend-${arch_string}
+
+    # The archive holds a bare 'resend' executable with no enclosing directory.
+    extract.mkdir       yes
+
+    build               {}
+
+    destroot {
+        xinstall -m 0755 ${worksrcpath}/resend ${destroot}${prefix}/bin/resend
+    }
+
+    test.cmd            ./resend
+}
+
+test.run            yes
+test.env            {*}${resend_offline_env}
+test.target
+test.args           --version
+
+post-destroot {
+    # Under +source the installed 'resend' is a wrapper pointing at the final
+    # prefix, which does not exist yet while staging, so the completions are
+    # generated from the staged bundle instead.
+    if {[variant_isset source]} {
+        set resend_run "${prefix}/bin/node ${destroot}${prefix}/lib/${name}/cli.cjs"
+    } else {
+        set resend_run ${destroot}${prefix}/bin/resend
+    }
+
+    set bash_comp ${destroot}${prefix}/share/bash-completion/completions
+    set zsh_comp  ${destroot}${prefix}/share/zsh/site-functions
+    set fish_comp ${destroot}${prefix}/share/fish/vendor_completions.d
+    xinstall -d ${bash_comp} ${zsh_comp} ${fish_comp}
+
+    system "env ${resend_offline_env} ${resend_run} completion bash > ${bash_comp}/resend"
+    system "env ${resend_offline_env} ${resend_run} completion zsh > ${zsh_comp}/_resend"
+    system "env ${resend_offline_env} ${resend_run} completion fish > ${fish_comp}/resend.fish"
+}
+
+if {[variant_isset source]} {
+    # scripts/build.mjs injects the PostHog key at build time via esbuild
+    # define. Building without upstream's key leaves it empty, and
+    # src/lib/telemetry.ts treats an absent key as telemetry disabled, so there
+    # is no telemetry in this build to opt out of.
+    notes "
+This build has no telemetry compiled into it. The CLI still checks GitHub for\
+new releases; to turn that off, set this in your shell profile:
+
+    export RESEND_NO_UPDATE_NOTIFIER=1
+"
+} else {
+    notes "
+The CLI sends anonymous usage telemetry and checks GitHub for new releases. To\
+turn both off, set these in your shell profile:
+
+    export RESEND_TELEMETRY_DISABLED=1
+    export RESEND_NO_UPDATE_NOTIFIER=1
+
+Setting DO_NOT_TRACK=1 also disables telemetry. Installing with +source produces\
+a build with no telemetry compiled in.
+"
+}
+
+github.livecheck.regex  {([0-9.]+)}

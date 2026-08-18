@@ -4,6 +4,7 @@ A MacPorts overlay that provides ports not available in upstream MacPorts. Model
 <br>
 
 ## This repository provides
+- `resend-cli`              *(v2.12.0)*    *(the official CLI for Resend; installs upstream's pre-built binary by default, `+source` builds from source)*
 
 <br>
 
