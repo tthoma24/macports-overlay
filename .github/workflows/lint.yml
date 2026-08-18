@@ -1,0 +1,40 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MacPorts
+        uses: melusina-org/setup-macports@v1
+
+      # port lint reads the Portfile in the current directory, so the repo does
+      # not need to be registered in sources.conf and no PortIndex is required.
+      - name: port lint --nitpick
+        run: |
+          set -uo pipefail
+          status=0
+          shopt -s nullglob
+          found=0
+          for portfile in */*/Portfile; do
+            found=1
+            dir=$(dirname "$portfile")
+            echo "::group::$dir"
+            if ! (cd "$dir" && port lint --nitpick); then
+              echo "::error file=$portfile::port lint --nitpick failed"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "No Portfiles found at category/portname/Portfile" >&2
+            exit 1
+          fi
+          exit "$status"
