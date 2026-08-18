@@ -1,0 +1,69 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+# Copyright (c) 2026 Teddy Thomas
+# Licensed under the Mozilla Public License 2.0. See LICENSE.
+
+# Copy this to category/portname/Portfile and edit. Notes:
+#   - The modeline has to be line 1 and line 2 has to be blank, or lint warns.
+#   - The first entry in 'categories' has to match the directory this file
+#     sits in, or lint warns.
+#   - 'license' describes the software being installed, not this Portfile.
+#   - Get checksums with:
+#       openssl dgst -rmd160 -r FILE; openssl dgst -sha256 -r FILE; wc -c < FILE
+#     Use wc -c rather than stat -f %z; GNU coreutils may shadow the BSD tools.
+#   - Lint without registering the repo:  cd category/portname && port lint --nitpick
+
+PortSystem          1.0
+PortGroup           github 1.0
+
+github.setup        AUTHOR PROJECT VERSION v
+revision            0
+
+categories          CATEGORY
+license             LICENSE
+maintainers         {gmail.com:tjthomas292 @tthoma24} openmaintainer
+
+description         ONE LINE, UNDER ~80 CHARS, NO TRAILING PERIOD
+
+long_description    {*}${description}, expanded into a sentence or two of \
+                    detail about what the software actually does.
+
+homepage            https://example.com
+
+# Drop these two if the port is noarch or builds everywhere.
+supported_archs     arm64 x86_64
+platforms           {darwin >= 22}
+
+# Set this when the port installs no libraries other ports would link against.
+installs_libs       no
+
+checksums           rmd160  0000000000000000000000000000000000000000 \
+                    sha256  0000000000000000000000000000000000000000000000000000000000000000 \
+                    size    0
+
+use_configure       no
+
+build               {}
+
+destroot {
+    xinstall -m 0755 ${worksrcpath}/BINARY ${destroot}${prefix}/bin/BINARY
+}
+
+# Uncomment and adjust if the port ships shell completions.
+#post-destroot {
+#    set bash_comp ${destroot}${prefix}/share/bash-completion/completions
+#    set zsh_comp  ${destroot}${prefix}/share/zsh/site-functions
+#    set fish_comp ${destroot}${prefix}/share/fish/vendor_completions.d
+#    xinstall -d ${bash_comp} ${zsh_comp} ${fish_comp}
+#
+#    system "${destroot}${prefix}/bin/BINARY completion bash > ${bash_comp}/BINARY"
+#    system "${destroot}${prefix}/bin/BINARY completion zsh > ${zsh_comp}/_BINARY"
+#    system "${destroot}${prefix}/bin/BINARY completion fish > ${fish_comp}/BINARY.fish"
+#}
+
+test.run            yes
+test.cmd            ./BINARY
+test.target
+test.args           --version
+
+github.livecheck.regex  {([0-9.]+)}
